@@ -1,0 +1,5 @@
+service:
+#   type: ClusterIP
+#   port: 80
+
+# Empty values for now, gotta get it to work before setting variables
