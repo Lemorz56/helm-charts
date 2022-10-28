@@ -19,7 +19,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
       - name: nats
-        image: nats:2.9.0
+        image: nats:2.9.3
         ports:
         - containerPort: 4222
           name: client
@@ -53,12 +53,14 @@ spec:
         resources:
           requests:
             cpu: 0
+
         livenessProbe:
           httpGet:
             path: /
             port: 8222
           initialDelaySeconds: 10
           timeoutSeconds: 5
+
         readinessProbe:
           httpGet:
             path: /
@@ -66,22 +68,22 @@ spec:
           initialDelaySeconds: 10
           timeoutSeconds: 5
 
-      - name: reloader
-        image: connecteverything/nats-server-config-reloader:0.6.0
-        command:
-         - "nats-server-config-reloader"
-         - "-pid"
-         - "/var/run/nats/nats.pid"
-         - "-config"
-         - "/etc/nats-config/nats.conf"
-        volumeMounts:
-          - name: config-volume
-            mountPath: /etc/nats-config
-          - name: pid
-            mountPath: /var/run/nats
+      # - name: reloader
+      #   image: connecteverything/nats-server-config-reloader:0.6.0
+      #   command:
+      #    - "nats-server-config-reloader"
+      #    - "-pid"
+      #    - "/var/run/nats/nats.pid"
+      #    - "-config"
+      #    - "/etc/nats-config/nats.conf"
+      #   volumeMounts:
+      #     - name: config-volume
+      #       mountPath: /etc/nats-config
+      #     - name: pid
+      #       mountPath: /var/run/nats
 
       - name: metrics
-        image: synadia/prometheus-nats-exporter:0.5.0
+        image: natsio/prometheus-nats-exporter:0.10.0
         args:
         - -connz
         - -routez
@@ -100,3 +102,65 @@ spec:
           name: nats-config
       - name: pid
         emptyDir: {}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: stan
+  labels:
+    app: stan
+spec:
+  selector:
+    matchLabels:
+      app: stan
+  replicas: 1
+  serviceName: "stan"
+  template:
+    metadata:
+      labels:
+        app: stan
+    spec:
+      shareProcessNamespace: true
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: stan
+        image: nats:2.9.3
+        ports:
+        - containerPort: 4222
+          name: client
+        - containerPort: 6222
+          name: cluster
+        - containerPort: 8222
+          name: monitor
+        - containerPort: 7777
+          name: metrics
+        args:
+         - "--config"
+         - "/etc/nats-config/nats.conf"
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+          - name: config-volume
+            mountPath: /etc/nats-config
+        resources:
+          requests:
+            cpu: 0
+      volumes:
+      - name: config-volume
+        configMap:
+          name: nats-config
+      initContainers:
+      # - name: init-mydb
+      #   image: busybox:1.28
+      #   command: ['sh', '-c', "until nslookup nats-test.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local:8222; do echo waiting for mydb; sleep 2; done"]
+      - name: wait-for-main-server
+        image: curlimages/curl:7.86.0
+        command: ["/bin/sh","-c"]
+        args: ["while [ $(curl -sw '%{http_code}' http://nats-0.svc.cluster.local:8222 -o /dev/null) -ne 200 ]; do sleep 5; echo 'Waiting for the nats.svc...'; done"]
